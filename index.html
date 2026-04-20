@@ -211,13 +211,13 @@ body { display: flex; flex-direction: column; min-height: 100vh; }
 
   <div class="section">
     <div class="section-header">
-      <div class="section-label">HCOP — CLAUDE</div>
+      <div class="section-label">HCOP — GPT-4o</div>
       <div class="section-actions">
         <button class="btn-small" onclick="copyText('hcopBox')">copiar HC</button>
         <button class="btn-small" onclick="clearHcop()">limpiar</button>
       </div>
     </div>
-    <div class="hcop-box empty" id="hcopBox">El HCOP generado por Claude aparecerá aquí...</div>
+    <div class="hcop-box empty" id="hcopBox">El HCOP aparecerá aquí...</div>
   </div>
 
   <div class="spacer"></div>
@@ -229,11 +229,6 @@ body { display: flex; flex-direction: column; min-height: 100vh; }
     <div class="settings-title">Configuración</div>
 
     <div class="field">
-      <label class="field-label">API KEY — ANTHROPIC (CLAUDE)</label>
-      <input type="password" id="cfgAnthropic" placeholder="sk-ant-..."/>
-    </div>
-
-    <div class="field">
       <label class="field-label">MÉTODO DE TRANSCRIPCIÓN</label>
       <select id="cfgMethod" onchange="onMethodChange()">
         <option value="whisper">Whisper (OpenAI) — mejor precisión</option>
@@ -242,18 +237,18 @@ body { display: flex; flex-direction: column; min-height: 100vh; }
     </div>
 
     <div class="field" id="openaiField">
-      <label class="field-label">API KEY — OPENAI (WHISPER)</label>
+      <label class="field-label">API KEY — OPENAI (transcripción + HCOP)</label>
       <input type="password" id="cfgOpenai" placeholder="sk-..."/>
     </div>
 
     <div class="field">
       <label class="field-label">PROMPT — CONSULTA COMPLETA</label>
-      <textarea id="cfgPromptConsulta">Sos un asistente médico clínico. Transcribiste una consulta cardiológica completa. Formatéala como historia clínica en primera persona del médico, sin viñetas, sin flechas, sin íconos. Secciones: motivo de consulta, antecedentes relevantes mencionados, medicación actual, examen físico si se describe, impresión diagnóstica, plan terapéutico. Si hay datos de laboratorio, usá formato HCLAB: una sola línea, abreviaturas, sin unidades, valores anormales en **negrita**, sin índices eritrocitarios ni serie blanca. Omití secciones sin datos. Texto listo para copiar a historia clínica.</textarea>
+      <textarea id="cfgPromptConsulta">Sos un asistente médico clínico. Transcribiste una consulta cardiológica completa. Formatéala como historia clínica en primera persona del médico, sin viñetas, sin flechas, sin íconos. Secciones: motivo de consulta, antecedentes relevantes mencionados, medicación actual, examen físico si se describe, impresión diagnóstica, plan terapéutico. Si hay datos de laboratorio, usá formato HCLAB: una sola línea, abreviaturas, sin unidades, valores anormales en negrita, sin índices eritrocitarios ni serie blanca. Omití secciones sin datos. Texto listo para copiar a historia clínica.</textarea>
     </div>
 
     <div class="field">
       <label class="field-label">PROMPT — DICTADO POST-CONSULTA</label>
-      <textarea id="cfgPromptDictado">Sos un asistente médico. El médico dictó un resumen libre de una consulta cardiológica. Convertilo en una evolución clínica en primera persona, sin viñetas, sin flechas, sin íconos, lista para copiar a la historia clínica. Incluí: motivo de consulta o control, hallazgos clínicos relevantes, medicación mencionada, plan. Si hay datos de laboratorio, usá formato HCLAB: una sola línea, abreviaturas, sin unidades, valores anormales en **negrita**. Omití lo que no se mencione. Redactá de forma fluida y profesional.</textarea>
+      <textarea id="cfgPromptDictado">Sos un asistente médico. El médico dictó un resumen libre de una consulta cardiológica. Convertilo en una evolución clínica en primera persona, sin viñetas, sin flechas, sin íconos, lista para copiar a la historia clínica. Incluí: motivo de consulta o control, hallazgos clínicos relevantes, medicación mencionada, plan. Si hay datos de laboratorio, usá formato HCLAB: una sola línea, abreviaturas, sin unidades, valores anormales en negrita. Omití lo que no se mencione. Redactá de forma fluida y profesional.</textarea>
     </div>
 
     <button class="settings-save" onclick="saveSettings()">Guardar configuración</button>
@@ -303,7 +298,6 @@ function setMode(m) {
 
 function getSettings() {
   return {
-    anthropic: localStorage.getItem('cr_anthropic') || '',
     openai: localStorage.getItem('cr_openai') || '',
     method: localStorage.getItem('cr_method') || 'whisper',
     promptConsulta: localStorage.getItem('cr_prompt_consulta') || document.getElementById('cfgPromptConsulta').value,
@@ -313,7 +307,6 @@ function getSettings() {
 
 function openSettings() {
   const s = getSettings();
-  document.getElementById('cfgAnthropic').value = s.anthropic;
   document.getElementById('cfgOpenai').value = s.openai;
   document.getElementById('cfgMethod').value = s.method;
   document.getElementById('cfgPromptConsulta').value = s.promptConsulta;
@@ -328,7 +321,6 @@ function onMethodChange() {
 }
 
 function saveSettings() {
-  localStorage.setItem('cr_anthropic', document.getElementById('cfgAnthropic').value.trim());
   localStorage.setItem('cr_openai', document.getElementById('cfgOpenai').value.trim());
   localStorage.setItem('cr_method', document.getElementById('cfgMethod').value);
   localStorage.setItem('cr_prompt_consulta', document.getElementById('cfgPromptConsulta').value);
@@ -412,9 +404,9 @@ function stopLevelMeter() {
 
 async function startRec() {
   const settings = getSettings();
-  if (!settings.anthropic) {
+  if (!settings.openai) {
     openSettings();
-    showToast('Configurá las API Keys primero');
+    showToast('Configurá la API Key primero');
     return;
   }
   try {
@@ -594,31 +586,34 @@ async function transcribeSegment(blob, num, isFinal) {
 
 async function analyzeWithClaude() {
   const settings = getSettings();
-  if (!settings.anthropic) { openSettings(); return; }
+  if (!settings.openai) { openSettings(); return; }
   const text = transcriptionText.trim();
   if (!text) return;
   const prompt = mode === 'consulta' ? settings.promptConsulta : settings.promptDictado;
 
-  setHcop('Procesando con Claude...', false, true);
+  setHcop('Procesando con GPT-4o...', false, true);
   document.getElementById('btnAnalyze').disabled = true;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': settings.anthropic,
-        'anthropic-version': '2023-06-01'
+        'Authorization': 'Bearer ' + settings.openai
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'gpt-4o',
         max_tokens: 2000,
-        messages: [{ role: 'user', content: prompt + '\n\nTRANSCRIPCIÓN:\n' + text }]
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: 'TRANSCRIPCIÓN:\n' + text }
+        ]
       })
     });
     const data = await res.json();
-    if (data.content?.[0]?.text) {
-      setHcop(data.content[0].text);
+    if (data.choices?.[0]?.message?.content) {
+      setHcop(data.choices[0].message.content);
     } else {
       setHcop('Error: ' + (data.error?.message || 'respuesta vacía'));
     }
